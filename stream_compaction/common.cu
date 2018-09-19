@@ -23,7 +23,16 @@ namespace StreamCompaction {
          * which map to 0 will be removed, and elements which map to 1 will be kept.
          */
         __global__ void kernMapToBoolean(int n, int *bools, const int *idata) {
-            // TODO
+
+          // get index first
+          int index = threadIdx.x + (blockIdx.x * blockDim.x);
+          if (index >= n)
+          {
+            return;
+          }
+
+          // determine if you're a boolean
+          bools[index] = idata[index] ? 1 : 0;
         }
 
         /**
@@ -32,7 +41,18 @@ namespace StreamCompaction {
          */
         __global__ void kernScatter(int n, int *odata,
                 const int *idata, const int *bools, const int *indices) {
-            // TODO
+          
+          // get index first
+          int index = threadIdx.x + (blockIdx.x * blockDim.x);
+          if (index >= n)
+          {
+            return;
+          }
+
+          if (bools[index])
+          {
+            odata[indices[index]] = idata[index];
+          }
         }
 
     }
