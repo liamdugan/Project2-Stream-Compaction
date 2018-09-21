@@ -16,7 +16,6 @@ This homework is an introduction to implementing and optimizing parallel algorit
 * GPU Naive scan implementation
 * GPU Work efficient scan and stream compaction implementation
 * Wrapper for Thrust compaction
-In this project I implemented the scan and stream compaction algorithms on both the CPU
 
 # Questions
 ### Roughly optimize the block sizes of each of your implementations for minimal run time on your GPU
@@ -37,7 +36,7 @@ I believe the main performance bottleneck in my scan code is undoubtedly the mem
 
 Additionally, in my work efficient scan algorithm I use ping-pong buffers,but memcpy the data between buffers on every cycle of both the upsweep and the downsweep of the algorithm. Since I do not have to do this in my naive implementation, I believe that is why my work efficient scan is slower.
 
-![](images/Code.png)
+![](images/Code.PNG)
 
 For the thrust scan, the reason why I believe the power of two array test runs so much slower than the non power of two code is due to some sort of internal thrust library bookkeeping. I believe once a thrust function is called, there is some sort of one-time-only process to initialize thrust specific state. Thus when we call the power-of-two length array thrust scan it has to take that extra set up time, but once we call the non power of two code, all the setup has already been completed and it can run quickly.
 
