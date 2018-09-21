@@ -4,7 +4,7 @@
 #include "common.h"
 #include "efficient.h"
 
-#define blockSize 512
+#define blockSize 128
 
 int* dev_efficientScanBuf;
 int* dev_efficientIdata;
@@ -62,7 +62,6 @@ namespace StreamCompaction {
          * Performs prefix-sum (aka scan) on idata, storing the result into odata.
          */
         void scan(int n, int *odata, const int *idata) {
-          timer().startGpuTimer();
           int nNextHighestPowTwo = 1 << ilog2ceil(n);
 
           cudaMalloc((void**)&dev_efficientScanBuf, nNextHighestPowTwo * sizeof(int));
@@ -70,6 +69,8 @@ namespace StreamCompaction {
 
           cudaMalloc((void**)&dev_efficientIdata, nNextHighestPowTwo * sizeof(int));
           checkCUDAError("cudaMalloc idata failed");
+
+          timer().startGpuTimer();
 
           cudaMemcpy((void*)dev_efficientIdata, (const void*)idata, nNextHighestPowTwo * sizeof(int), cudaMemcpyHostToDevice);
           checkCUDAError("cudaMemcpy idata failed");
@@ -97,7 +98,7 @@ namespace StreamCompaction {
           // now call the downsweep kernel log2n times
           for (int d = (ilog2ceil(nNextHighestPowTwo) - 1); d >= 0; --d)
           {
-            // copy all the data to make sure everythings in place
+            // copy all the data to make sure everything is in place
             cudaMemcpy((void*)dev_efficientScanBuf, (const void*)dev_efficientIdata, nNextHighestPowTwo * sizeof(int), cudaMemcpyDeviceToDevice);
             checkCUDAError("cudaMemcpy idata failed");
 
@@ -113,10 +114,12 @@ namespace StreamCompaction {
           // shift it and memcpy to out
           cudaMemcpy(odata, dev_efficientIdata, nNextHighestPowTwo * sizeof(int), cudaMemcpyDeviceToHost);
 
+          timer().endGpuTimer();
+
           cudaFree(dev_efficientScanBuf);
           cudaFree(dev_efficientIdata);
            
-          timer().endGpuTimer();
+
         }
 
         /**
@@ -129,7 +132,6 @@ namespace StreamCompaction {
          * @returns      The number of elements remaining after compaction.
          */
         int compact(int n, int *odata, const int *idata) {
-            timer().startGpuTimer();
             int nNextHighestPowTwo = 1 << ilog2ceil(n);
 
             cudaMalloc((void**)&dev_efficientBools, nNextHighestPowTwo * sizeof(int));
@@ -147,6 +149,8 @@ namespace StreamCompaction {
             // memcpy all the stuff over to gpu before calling kernel functions
             cudaMemcpy((void*)dev_efficientIdata, (const void*)idata, nNextHighestPowTwo * sizeof(int), cudaMemcpyHostToDevice);
             checkCUDAError("cudaMemcpy idata failed");
+
+            timer().startGpuTimer();
 
             // map all of the values to booleans (and pad with zeroes for those values higher than original array limit)
             StreamCompaction::Common::kernMapToBoolean<< <((nNextHighestPowTwo + blockSize - 1) / blockSize), blockSize >> > (n, nNextHighestPowTwo, dev_efficientBools, dev_efficientIdata);
@@ -204,12 +208,13 @@ namespace StreamCompaction {
             // memcpy to out
             cudaMemcpy(odata, dev_efficientScanBuf, sizeOfCompactedStream * sizeof(int), cudaMemcpyDeviceToHost);
 
+            timer().endGpuTimer();
+
             // free all our stuff
             cudaFree(dev_efficientScanBuf);
             cudaFree(dev_efficientBools);
             cudaFree(dev_efficientIdata);
             cudaFree(dev_efficientIndices);
-            timer().endGpuTimer();
 
             // return the total size of the compacted stream
             return sizeOfCompactedStream;

@@ -3,7 +3,7 @@
 #include "common.h"
 #include "naive.h"
 
-#define blockSize 512
+#define blockSize 64
 
 int* dev_gpuScanBuf;
 int* dev_idata;
@@ -64,7 +64,7 @@ namespace StreamCompaction {
          * Performs prefix-sum (aka scan) on idata, storing the result into odata.
          */
         void scan(int n, int *odata, const int *idata) {
-          timer().startGpuTimer();
+
           dim3 fullBlocksPerGrid((n + blockSize - 1) / blockSize);
 
           int nNextHighestPowTwo = 1 << ilog2ceil(n);
@@ -75,6 +75,8 @@ namespace StreamCompaction {
           cudaMalloc((void**)&dev_idata, nNextHighestPowTwo * sizeof(int));
           checkCUDAError("cudaMalloc idata failed");
 
+          timer().startGpuTimer();
+         
           cudaMemcpy((void*)dev_idata, (const void*)idata, nNextHighestPowTwo * sizeof(int), cudaMemcpyHostToDevice);
           checkCUDAError("cudaMemcpy idata failed");
 
@@ -93,11 +95,14 @@ namespace StreamCompaction {
 
           // shift it and memcpy to out
           kernShiftScan << <((n + blockSize - 1) / blockSize), blockSize >> > (nNextHighestPowTwo, dev_gpuScanBuf, dev_idata);
+        
           cudaMemcpy(odata, dev_gpuScanBuf, nNextHighestPowTwo * sizeof(float), cudaMemcpyDeviceToHost);
+
+          timer().endGpuTimer();
 
           cudaFree(dev_gpuScanBuf);
           cudaFree(dev_idata);
-          timer().endGpuTimer();
+
         }
     }
 }
