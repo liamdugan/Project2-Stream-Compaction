@@ -22,17 +22,16 @@ namespace StreamCompaction {
          * Maps an array to an array of 0s and 1s for stream compaction. Elements
          * which map to 0 will be removed, and elements which map to 1 will be kept.
          */
-        __global__ void kernMapToBoolean(int n, int *bools, const int *idata) {
-
-          // get index first
+        __global__ void kernMapToBoolean(int n, int paddedN, int *bools, const int *idata) {
+          // get index first and reject if greater than paddedN
           int index = threadIdx.x + (blockIdx.x * blockDim.x);
-          if (index >= n)
+          if (index >= paddedN)
           {
             return;
           }
-
-          // determine if you're a boolean
-          bools[index] = idata[index] ? 1 : 0;
+ 
+          // determine if you're a boolean (if you're in the part that's just padded on, give yourself a 0)
+          bools[index] = (idata[index] && index < n) ? 1 : 0;
         }
 
         /**
@@ -54,6 +53,5 @@ namespace StreamCompaction {
             odata[indices[index]] = idata[index];
           }
         }
-
     }
 }

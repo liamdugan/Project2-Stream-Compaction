@@ -5,25 +5,51 @@
 
 #define blockSize 512
 
-        __global__ void kernNaiveScan(int n, int twoToPowerDMinusOne, float* odata, float* idata)
-        {
-          // get index first
-          int index = threadIdx.x + (blockIdx.x * blockDim.x);
-          if (index >= n)
-          {
-            return;
-          }
+int* dev_gpuScanBuf;
+int* dev_idata;
 
-          // then add the two numbers and put them into the global output buffer
- //         if (index >= twoToPowerDMinusOne)
- //         {
- //           odata[index] = idata[index - twoToPowerDMinusOne] + idata[index];
- //         }
- //         else
- //         {
- //           odata[index] = idata[index];
- //         }
-        }
+__global__ void kernNaiveScan(int n, int twoToPowerDMinusOne, int* odata, int* idata)
+{
+  // get index first
+  int index = threadIdx.x + (blockIdx.x * blockDim.x);
+  if (index >= n)
+  {
+    return;
+  }
+  
+  // then add the two numbers and put them into the global output buffer
+  if (index >= twoToPowerDMinusOne)
+  {
+    int one = idata[index - twoToPowerDMinusOne];
+    int two = idata[index];
+    int onePlusTwo = one + two;
+    odata[index] = onePlusTwo;
+  }
+  else
+  {
+    odata[index] = idata[index];
+  }
+}
+
+__global__ void kernShiftScan(int n, int* odata, int* idata)
+{
+
+  // if your thread index is 0, insert a 0, otherwise everyone else do their own index - 1 in the data array
+  int index = threadIdx.x + (blockIdx.x * blockDim.x);
+  if (index >= n)
+  {
+    return;
+  }
+
+  if (index == 0)
+  {
+    odata[index] = 0;
+  }
+  else
+  {
+    odata[index] = idata[index - 1];
+  }
+}
 
 namespace StreamCompaction {
     namespace Naive {
@@ -34,7 +60,6 @@ namespace StreamCompaction {
             return timer;
         }
 
-
         /**
          * Performs prefix-sum (aka scan) on idata, storing the result into odata.
          */
@@ -42,44 +67,33 @@ namespace StreamCompaction {
           timer().startGpuTimer();
           dim3 fullBlocksPerGrid((n + blockSize - 1) / blockSize);
 
-          float* dev_gpuScanBuf;
-          float* dev_idata;
-
           int nNextHighestPowTwo = 1 << ilog2ceil(n);
 
-          cudaMalloc((void**)&dev_gpuScanBuf, nNextHighestPowTwo * sizeof(float));
+          cudaMalloc((void**)&dev_gpuScanBuf, nNextHighestPowTwo * sizeof(int));
           checkCUDAError("cudaMalloc buf failed");
 
-          cudaMalloc((void**)&dev_idata, nNextHighestPowTwo * sizeof(float));
+          cudaMalloc((void**)&dev_idata, nNextHighestPowTwo * sizeof(int));
           checkCUDAError("cudaMalloc idata failed");
 
-          cudaMemcpy((void*)dev_idata, (const void*)idata, nNextHighestPowTwo * sizeof(float), cudaMemcpyHostToDevice);
+          cudaMemcpy((void*)dev_idata, (const void*)idata, nNextHighestPowTwo * sizeof(int), cudaMemcpyHostToDevice);
           checkCUDAError("cudaMemcpy idata failed");
 
           // call the kernel log2n number of times
-          bool flipped = false;
-          for (int i = 0; i < ilog2ceil(nNextHighestPowTwo); ++i)
+          for (int i = 1; i <= ilog2ceil(nNextHighestPowTwo); ++i)
           {
             // call the kernel
             int twoToPowerIMinusOne = 1 << (i - 1);
-            std::cout << ((n + blockSize - 1) / blockSize) << ", " << blockSize << std::endl;
             kernNaiveScan<<<((n + blockSize - 1) / blockSize) , blockSize>>>(nNextHighestPowTwo, twoToPowerIMinusOne, dev_gpuScanBuf, dev_idata);
 
-            // flip flop the buffers and keep track with a boolean (flipped = true means dev_idata has the latest data)
-            float* temp = dev_gpuScanBuf;
+            // flip flop the buffers 
+            int* temp = dev_gpuScanBuf;
             dev_gpuScanBuf = dev_idata;
             dev_idata = temp;
-            flipped = !flipped;
           }
 
-          if (flipped)
-          {
-            cudaMemcpy(odata, dev_idata, nNextHighestPowTwo * sizeof(float), cudaMemcpyDeviceToHost);
-          }
-          else
-          {
-            cudaMemcpy(odata, dev_gpuScanBuf, nNextHighestPowTwo * sizeof(float), cudaMemcpyDeviceToHost);
-          }
+          // shift it and memcpy to out
+          kernShiftScan << <((n + blockSize - 1) / blockSize), blockSize >> > (nNextHighestPowTwo, dev_gpuScanBuf, dev_idata);
+          cudaMemcpy(odata, dev_gpuScanBuf, nNextHighestPowTwo * sizeof(float), cudaMemcpyDeviceToHost);
 
           cudaFree(dev_gpuScanBuf);
           cudaFree(dev_idata);
